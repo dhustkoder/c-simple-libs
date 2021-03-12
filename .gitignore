@@ -1,6 +1,7 @@
 *.exe
 *.obj
 *.vs
+*.swp
 *.vscode
 *.exp
 *.lib
@@ -12,3 +13,4 @@
 *~
 *.so
 *.obj
+*.out
