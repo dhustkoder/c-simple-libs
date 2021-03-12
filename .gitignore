@@ -1,0 +1,14 @@
+*.exe
+*.obj
+*.vs
+*.vscode
+*.exp
+*.lib
+*.dll
+.vs/
+*.ilk
+*.pdb
+*.un*
+*~
+*.so
+*.obj
