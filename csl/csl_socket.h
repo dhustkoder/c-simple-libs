@@ -20,6 +20,7 @@ typedef int(*Socket_IO_FNP)();
 #include <netinet/in.h>
 #include <netinet/ip.h>
 #include <arpa/inet.h>
+#include <netdb.h>
 #include <unistd.h>
 
 
@@ -64,6 +65,7 @@ CSLDEF int csl_socket_init(void);
 CSLDEF void csl_socket_term(void);
 CSLDEF Socket csl_socket_open(Protocol proto);
 CSLDEF int csl_socket_connect(Socket s, const char* ip, short port);
+CSLDEF int csl_socket_connect_hostname(Socket s, const char* hostname, short port);
 CSLDEF int csl_socket_bind(Socket s, short port);
 CSLDEF int csl_socket_listen(Socket s, int backlog);
 CSLDEF Socket csl_socket_accept(Socket listener);
@@ -193,6 +195,21 @@ CSLDEF int csl_socket_connect(Socket s, const char* ip, short port)
 	struct sockaddr_in addr;
 	csl_sockaddr_setup(&addr, ip, port);
 	return connect(s, (struct sockaddr*)&addr, sizeof(addr));
+}
+
+CSLDEF int csl_socket_connect_hostname(Socket s, const char* hostname, short port)
+{
+	struct hostent* he;
+	const char* ip;
+	
+	he = gethostbyname(hostname);
+	if (he == NULL) 
+		return 1;
+	
+	ip = inet_ntoa(*(struct in_addr*)*he->h_addr_list);
+
+	return csl_socket_connect(s, ip, port);
+	
 }
 
 CSLDEF int csl_socket_bind(Socket s, short port)
