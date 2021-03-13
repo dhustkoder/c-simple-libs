@@ -15,6 +15,7 @@ typedef SOCKET Socket;
 #elif defined(__linux__)
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/ioctl.h>
 #include <netinet/in.h>
 #include <netinet/ip.h>
 #include <arpa/inet.h>
@@ -42,13 +43,19 @@ typedef int Socket;
 #define CSL_SOCKET_MAX_PACKET_SIZE 1024
 
 
-enum protocol {
+enum csl_protocol {
 	CSL_PROTOCOL_UDP,
 	CSL_PROTOCOL_TCP,
 	CSL_PROTOCOL_COUNT
 };
 typedef int Protocol;
 
+enum csl_io_opt {
+	CSL_IO_OPT_WAIT,
+	CSL_IO_OPT_DONTWAIT,
+	CSL_IO_OPT_COUNT,
+};
+typedef int IO_OPT;
 
 CSLDEF int csl_socket_init(void);
 CSLDEF void csl_socket_term(void);
@@ -57,8 +64,8 @@ CSLDEF int csl_socket_connect(Socket s, const char* ip, short port);
 CSLDEF int csl_socket_bind(Socket s, short port);
 CSLDEF int csl_socket_listen(Socket s, int backlog);
 CSLDEF Socket csl_socket_accept(Socket listener);
-CSLDEF int csl_socket_send(Socket s, const void* data, int len);
-CSLDEF int csl_socket_recv(Socket s, void* data, int len);
+CSLDEF int csl_socket_send(Socket s, const void* data, int len, IO_OPT opt);
+CSLDEF int csl_socket_recv(Socket s, void* data, int len, IO_OPT opt);
 CSLDEF void csl_socket_close(Socket s);
 
 
@@ -134,40 +141,70 @@ CSLDEF Socket csl_socket_accept(Socket listener)
 	return accept(listener, NULL, NULL);
 }
 
-CSLDEF int csl_socket_send(Socket s, const void* data, int len)
+CSLDEF int csl_socket_send(Socket s, const void* data, int len, IO_OPT opt)
 {
 	const char* p = data;
+
+	int sent_bytes = 0;
+
 	while (len > 0) {
 		int packet_size = len > CSL_SOCKET_MAX_PACKET_SIZE 
 		                  ? CSL_SOCKET_MAX_PACKET_SIZE
 				  : len;
+
 		int ret = send(s, p, packet_size, 0); 
 
-		if (ret == CSL_SOCKET_ERROR)
-			return 1;
+		if (ret == CSL_SOCKET_ERROR) {
+			return sent_bytes ? sent_bytes : CSL_SOCKET_ERROR;
+		}
 
 		len -= ret;
 		p += ret;
+		sent_bytes += ret;
 	}
-	return 0;
+
+	return sent_bytes;
 }
 
-CSLDEF int csl_socket_recv(Socket s, void* data, int len)
+CSLDEF int csl_socket_recv(Socket s, void* data, int len, IO_OPT opt)
 {
+	int ret;
+
+	if (opt == CSL_IO_OPT_DONTWAIT) {
+#if defined(__linux__)
+		int available_len;
+		ret = ioctl(s, FIONREAD, (void*)&available_len);
+#elif defined(_WIN32)
+		u_long available_len;
+		ret = ioctlsocket(s, FIONREAD, &available_len);
+#endif
+		if (ret == CSL_SOCKET_ERROR)
+			return CSL_SOCKET_ERROR;
+
+		if ((unsigned long)available_len < (unsigned long)len)
+			return 0;
+	}
+
 	char* p = data;
+
+	int recv_bytes = 0;
+
 	while (len > 0) {
 		int packet_size = len > CSL_SOCKET_MAX_PACKET_SIZE 
 		                  ? CSL_SOCKET_MAX_PACKET_SIZE
 				  : len;
-		int ret = recv(s, p, packet_size, 0); 
+		ret = recv(s, p, packet_size, 0); 
 
-		if (ret == CSL_SOCKET_ERROR)
-			return 1;
+		if (ret == CSL_SOCKET_ERROR) {
+			return recv_bytes ? recv_bytes : CSL_SOCKET_ERROR;
+		}
 
 		len -= ret;
 		p += ret;
+		recv_bytes += ret;
 	}
-	return 0;
+
+	return recv_bytes;
 }
 
 CSLDEF void csl_socket_close(Socket s)
