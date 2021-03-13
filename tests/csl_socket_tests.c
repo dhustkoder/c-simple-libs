@@ -56,7 +56,7 @@ void tcp_test(void)
 
 	const char match[] = "0xdeadcode";
 	char data[sizeof(match) + 1] = { 0 };
-	ret = csl_socket_recv(server, data, sizeof(match), CSL_IO_OPT_DONTWAIT);
+	ret = csl_socket_recv(client_ret, data, sizeof(match), CSL_IO_OPT_DONTWAIT);
 	assert(ret == 0);
 	ret = csl_socket_send(client, match, sizeof(match), CSL_IO_OPT_WAIT);
 	assert(ret == sizeof(match));

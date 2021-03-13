@@ -6,6 +6,7 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 typedef SOCKET Socket;
+typedef int(*Socket_IO_FNP)();
 
 #define CSL_WSA_VERSION_MAJOR (2)
 #define CSL_WSA_VERSION_MINOR (2)
@@ -23,9 +24,11 @@ typedef SOCKET Socket;
 
 
 typedef int Socket;
+typedef ssize_t(*Socket_IO_FNP)();
 
 #define CSL_INVALID_SOCKET (-1)
 #define CSL_SOCKET_ERROR   (-1)
+
 
 #else
 #error "Undefined Platform"
@@ -73,6 +76,7 @@ CSLDEF void csl_socket_close(Socket s);
 #if defined(CSL_SOCKET_IMPLEMENTATION)
 #include <string.h>
 #include <limits.h>
+#include <errno.h>
 
 static void csl_sockaddr_setup(struct sockaddr_in* addr, const char* ip, short port)
 {
@@ -88,6 +92,72 @@ static void csl_sockaddr_setup(struct sockaddr_in* addr, const char* ip, short p
 	} else {
 		addr->sin_addr.s_addr = INADDR_ANY;
 	}
+}
+/*
+static int csl_fionread(Socket s)
+{
+	int ret;
+
+#if defined(__linux__)
+	int nread;
+	ret = ioctl(s, FIONREAD, &nread);
+#elif defined(_WIN32)
+	u_long nread;
+	ret = ioctlsocket(s, cmd, &nread);
+	nread = nread <= INT_MAX ? nread : INT_MAX;
+#endif
+	return (ret == CSL_SOCKET_ERROR) ? ret : nread;
+}*/
+
+static int csl_fionbio(Socket s, int nblock)
+{
+	int ret;
+#if defined(__linux__)
+	int param = nblock ? 1 : 0;
+	ret = ioctl(s, FIONBIO, &param);
+#elif defined(_WIN32)
+	u_long param = nblock ? 1 : 0;
+	ret = ioctlsocket(s, FIONBIO, &param);
+#endif
+	return ret;
+}
+
+static int csl_io_wrap(Socket s, const void* data, int len, IO_OPT opt, Socket_IO_FNP iofn)
+{
+	const int err = csl_fionbio(s, opt == CSL_IO_OPT_DONTWAIT ? 1 : 0);	
+	if (err == CSL_SOCKET_ERROR)
+		return err;
+
+	const char* p = data;
+	int track_bytes = 0;
+
+	while (len > 0) {
+		int packet_size = len > CSL_SOCKET_MAX_PACKET_SIZE 
+		                  ? CSL_SOCKET_MAX_PACKET_SIZE
+				  : len;
+		const int nbytes = iofn(s, (void*)p, packet_size, 0); 
+
+		if (nbytes == CSL_SOCKET_ERROR) {
+#if defined(_WIN32)
+			if (WSAGetLastError() == WSAEWOULDBLOCK)
+				return track_bytes;
+			else
+				return nbytes;
+#elif defined(__linux__)
+			if (errno == EAGAIN || errno == EWOULDBLOCK)
+				return track_bytes;
+			else
+				return nbytes;
+#endif
+		}
+
+
+		len -= nbytes;
+		p += nbytes;
+		track_bytes += nbytes;
+	}
+
+	return track_bytes;
 }
 
 
@@ -144,67 +214,12 @@ CSLDEF Socket csl_socket_accept(Socket listener)
 
 CSLDEF int csl_socket_send(Socket s, const void* data, int len, IO_OPT opt)
 {
-	const char* p = data;
-
-	int sent_bytes = 0;
-
-	while (len > 0) {
-		int packet_size = len > CSL_SOCKET_MAX_PACKET_SIZE 
-		                  ? CSL_SOCKET_MAX_PACKET_SIZE
-				  : len;
-
-		int ret = send(s, p, packet_size, 0); 
-
-		if (ret == CSL_SOCKET_ERROR) {
-			return sent_bytes ? sent_bytes : CSL_SOCKET_ERROR;
-		}
-
-		len -= ret;
-		p += ret;
-		sent_bytes += ret;
-	}
-
-	return sent_bytes;
+	return csl_io_wrap(s, data, len, opt, send);
 }
 
 CSLDEF int csl_socket_recv(Socket s, void* data, int len, IO_OPT opt)
 {
-	int ret;
-
-	if (opt == CSL_IO_OPT_DONTWAIT) {
-#if defined(__linux__)
-		int available_len;
-		ret = ioctl(s, FIONREAD, &available_len);
-#elif defined(_WIN32)
-		u_long available_len;
-		ret = ioctlsocket(s, FIONREAD, &available_len);
-#endif
-		if (ret == CSL_SOCKET_ERROR)
-			return CSL_SOCKET_ERROR;
-		
-		len = available_len <= INT_MAX ? (int)available_len : INT_MAX;
-	}
-
-	char* p = data;
-
-	int recv_bytes = 0;
-
-	while (len > 0) {
-		int packet_size = len > CSL_SOCKET_MAX_PACKET_SIZE 
-		                  ? CSL_SOCKET_MAX_PACKET_SIZE
-				  : len;
-		ret = recv(s, p, packet_size, 0); 
-
-		if (ret == CSL_SOCKET_ERROR) {
-			return recv_bytes ? recv_bytes : CSL_SOCKET_ERROR;
-		}
-
-		len -= ret;
-		p += ret;
-		recv_bytes += ret;
-	}
-
-	return recv_bytes;
+	return csl_io_wrap(s, data, len, opt, recv);
 }
 
 CSLDEF void csl_socket_close(Socket s)
