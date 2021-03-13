@@ -72,6 +72,7 @@ CSLDEF void csl_socket_close(Socket s);
 
 #if defined(CSL_SOCKET_IMPLEMENTATION)
 #include <string.h>
+#include <limits.h>
 
 static void csl_sockaddr_setup(struct sockaddr_in* addr, const char* ip, short port)
 {
@@ -173,16 +174,15 @@ CSLDEF int csl_socket_recv(Socket s, void* data, int len, IO_OPT opt)
 	if (opt == CSL_IO_OPT_DONTWAIT) {
 #if defined(__linux__)
 		int available_len;
-		ret = ioctl(s, FIONREAD, (void*)&available_len);
+		ret = ioctl(s, FIONREAD, &available_len);
 #elif defined(_WIN32)
 		u_long available_len;
 		ret = ioctlsocket(s, FIONREAD, &available_len);
 #endif
 		if (ret == CSL_SOCKET_ERROR)
 			return CSL_SOCKET_ERROR;
-
-		if ((unsigned long)available_len < (unsigned long)len)
-			return 0;
+		
+		len = available_len <= INT_MAX ? (int)available_len : INT_MAX;
 	}
 
 	char* p = data;
