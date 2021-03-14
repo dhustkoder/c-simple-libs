@@ -20,10 +20,10 @@ void data_transfer_test(Socket a, Socket b, int size)
  
 
 	/* test wait */
-	ret = csl_socket_send(b, sendbuf, size, CSL_IO_OPT_WAIT);
+	ret = csl_socket_send(b, sendbuf, size, true);
 	assert(ret == size);
 
-	ret = csl_socket_recv(a, recvbuf, size, CSL_IO_OPT_WAIT); 
+	ret = csl_socket_recv(a, recvbuf, size, true); 
 	assert(ret == size);
 
 	ret = memcmp(recvbuf, sendbuf, size);
@@ -40,12 +40,17 @@ void data_transfer_test(Socket a, Socket b, int size)
 
 void udp_test(void)
 {
+	Socket f = 0;
 	Socket a  = csl_socket_open(CSL_PROTOCOL_UDP);
 	Socket b  = csl_socket_open(CSL_PROTOCOL_UDP);	
 
 	assert(a != CSL_INVALID_SOCKET && b != CSL_INVALID_SOCKET);
 	
 	int ret;
+
+	ret = csl_socket_connect(f, "localhost", 7171);
+	assert(ret != 0);
+	printf("error: %s\n", csl_socket_last_error_str());
 
 	ret = csl_socket_bind(a, 7171);	
 	assert(ret == 0);
